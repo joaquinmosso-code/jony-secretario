@@ -198,10 +198,26 @@ def _ejecutar_tool(nombre, entrada):
         return {"error": str(e)}
 
 
-def responder(mensaje_usuario: str) -> str:
-    """Manda el mensaje a Claude, ejecuta las tools que pida, y devuelve el texto final."""
-    mensajes = [{"role": "user", "content": mensaje_usuario}]
+# ---------- Memoria de conversación ----------
+# Se guarda solo el texto final de cada intercambio (no los pasos intermedios de
+# herramientas), por chat de Telegram. Vive en memoria del proceso: si Railway
+# reinicia el servicio, se pierde y arranca de cero — es una limitación aceptada,
+# no algo persistente en la base de datos.
+_HISTORIALES = {}
+MAX_INTERCAMBIOS_RECORDADOS = 8  # cuántos pares (Joaco / Jony) previos se le pasan de contexto
 
+
+def reiniciar_conversacion(chat_id):
+    _HISTORIALES.pop(chat_id, None)
+
+
+def responder(chat_id, mensaje_usuario: str) -> str:
+    """Manda el mensaje (con el historial reciente de ese chat) a Claude, ejecuta
+    las tools que pida, y devuelve el texto final."""
+    historial_previo = _HISTORIALES.get(chat_id, [])
+    mensajes = historial_previo + [{"role": "user", "content": mensaje_usuario}]
+
+    texto_final = None
     for _ in range(5):  # límite de vueltas, por las dudas, para evitar loops
         respuesta = client.messages.create(
             model=MODEL,
@@ -212,9 +228,10 @@ def responder(mensaje_usuario: str) -> str:
         )
 
         if respuesta.stop_reason != "tool_use":
-            return "".join(
+            texto_final = "".join(
                 bloque.text for bloque in respuesta.content if bloque.type == "text"
             ) or "No tengo una respuesta para eso."
+            break
 
         mensajes.append({"role": "assistant", "content": respuesta.content})
 
@@ -229,5 +246,16 @@ def responder(mensaje_usuario: str) -> str:
                 })
 
         mensajes.append({"role": "user", "content": resultados})
+    else:
+        texto_final = "Perdón, me hice bolas pensando la respuesta. ¿Podés reformularla?"
 
-    return "Perdón, me hice bolas pensando la respuesta. ¿Podés reformularla?"
+    # Guardamos en la memoria del chat solo el intercambio "limpio" (sin los pasos de
+    # herramientas), así el contexto que se le pasa la próxima vez es liviano y siempre
+    # queda bien formado para la API.
+    nuevo_historial = historial_previo + [
+        {"role": "user", "content": mensaje_usuario},
+        {"role": "assistant", "content": texto_final},
+    ]
+    _HISTORIALES[chat_id] = nuevo_historial[-(MAX_INTERCAMBIOS_RECORDADOS * 2):]
+
+    return texto_final

@@ -63,7 +63,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/outlook - Ver tus últimos mails no leídos de Outlook\n"
         "/clima <ciudad> - Ver el clima actual de una localidad (ej: /clima Río Cuarto)\n"
         "/clima <ciudad> mañana - Ver el pronóstico de mañana (ej: /clima Río Cuarto mañana)\n"
-        "/agenda - Ver tus próximos compromisos (Google + Outlook)\n\n"
+        "/agenda - Ver tus próximos compromisos (Google + Outlook)\n"
+        "/nuevo - Olvidarme de lo que veníamos hablando y arrancar de cero\n\n"
         "También me podés escribir directamente, sin comandos, o mandarme un audio — por ejemplo:\n"
         "\"¿qué clima hace mañana en Río Cuarto?\", \"tengo mails sin leer?\", "
         "\"¿qué tareas tiene pendientes Nacho en Abasto?\", "
@@ -274,7 +275,7 @@ async def mensaje_voz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     try:
-        respuesta = agent_helper.responder(texto)
+        respuesta = agent_helper.responder(update.effective_chat.id, texto)
     except Exception:
         logger.exception("Error en el agente conversacional")
         respuesta = (
@@ -284,12 +285,17 @@ async def mensaje_voz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(respuesta)
 
 
+async def nuevo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    agent_helper.reiniciar_conversacion(update.effective_chat.id)
+    await update.message.reply_text("Listo, arrancamos de cero 🧹 — no me acuerdo de lo que veníamos hablando.")
+
+
 async def mensaje_libre(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Cualquier mensaje que no sea un comando se lo pasamos a Jony para que decida qué hacer."""
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     try:
-        respuesta = agent_helper.responder(update.message.text)
+        respuesta = agent_helper.responder(update.effective_chat.id, update.message.text)
     except Exception:
         logger.exception("Error en el agente conversacional")
         respuesta = (
@@ -314,6 +320,7 @@ def main() -> None:
     app.add_handler(CommandHandler("outlook", outlook))
     app.add_handler(CommandHandler("clima", clima))
     app.add_handler(CommandHandler("agenda", agenda))
+    app.add_handler(CommandHandler("nuevo", nuevo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje_libre))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, mensaje_voz))
 
