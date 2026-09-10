@@ -31,7 +31,13 @@ def system_prompt():
         "Respondé siempre en español rioplatense, de forma cálida, directa y breve, "
         "como un asistente de confianza por Telegram. Usá las herramientas disponibles "
         "para responder con datos reales de mail, agenda, clima y de la app de Gestión "
-        "de Sucursales — nunca inventes esa información. Si te piden cargar una tarea o "
+        "de Sucursales — nunca inventes esa información. Cuando la pregunta sea sobre "
+        "ventas, tareas, actividad comercial u otros datos de la app y no haya una "
+        "herramienta puntual para eso, usá 'consultar_ventas_detalle' o "
+        "'consultar_datos_generales' para traer los datos en crudo, y hacé vos mismo el "
+        "cálculo, filtro o comparación que te pidan (sumar, comparar meses, rankear, "
+        "lo que sea) — no hace falta que exista una herramienta específica para cada "
+        "pregunta posible. Si te piden cargar una tarea o "
         "registrar una actividad comercial, usá la herramienta correspondiente y confirmá "
         "con un mensaje corto qué quedó cargado. Si una herramienta devuelve un error, "
         "contáselo a Joaco de forma simple, sin tecnicismos."
@@ -130,15 +136,19 @@ TOOLS = [
         },
     },
     {
-        "name": "consultar_ventas",
-        "description": "Devuelve los litros vendidos del Panel de Estaciones de Servicio de GLB, filtrado opcionalmente por mes, sucursal y/o producto específico (nafta súper, nafta premium, diesel, euro o GNC). Si no se filtra por producto, devuelve el desglose por cada producto.",
+        "name": "consultar_ventas_detalle",
+        "description": "Devuelve TODO el detalle de ventas del Panel de Estaciones de Servicio de GLB (mes, sucursal, producto, litros/m³, precio, presupuesto), registro por registro, sin agrupar. Usala para cualquier pregunta sobre ventas o volúmenes — vos mismo filtrás, sumás o comparás lo que haga falta con estos datos (por producto, por sucursal, por mes, interanual, ranking, lo que sea).",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "consultar_datos_generales",
+        "description": "Devuelve datos en crudo de una sección de la app de GLB, para responder cualquier pregunta sobre esa sección vos mismo (filtrando, contando, comparando lo que haga falta) sin depender de una herramienta específica. Secciones disponibles: 'tareas' (todas las tareas de cada sucursal, con estado y a quién están asignadas), 'comercial_actividad' (todo el registro de visitas/leads/clientes), 'personas' (el equipo), 'objetivos_petrolera' (objetivos bimestrales por sucursal), 'metas_comerciales' (metas por mes).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "mes": {"type": "string", "description": "Mes en formato AAAA-MM (ej: '2026-08' para agosto de 2026). Convertí vos el mes que te diga Joaco a este formato. Si no se especifica, suma todos los meses disponibles."},
-                "sucursal": {"type": "string", "description": "Nombre de la sucursal (Abasto, Seminario, Alejandro Roca, Villa Mercedes, Villa General Belgrano). Si no se especifica, trae todas."},
-                "producto": {"type": "string", "description": "Producto específico: nafta super, nafta premium, diesel, euro o gnc. Si no se especifica, trae el desglose de todos."},
+                "seccion": {"type": "string", "enum": ["tareas", "comercial_actividad", "personas", "objetivos_petrolera", "metas_comerciales"]},
             },
+            "required": ["seccion"],
         },
     },
 ]
@@ -191,10 +201,11 @@ def _ejecutar_tool(nombre, entrada):
         if nombre == "consultar_precios":
             return glb_helper.resumen_precios(sucursal=entrada.get("sucursal"))
 
-        if nombre == "consultar_ventas":
-            return glb_helper.consultar_ventas(
-                mes=entrada.get("mes"), sucursal=entrada.get("sucursal"), producto=entrada.get("producto")
-            )
+        if nombre == "consultar_ventas_detalle":
+            return glb_helper.consultar_ventas_detalle()
+
+        if nombre == "consultar_datos_generales":
+            return glb_helper.consultar_datos_generales(seccion=entrada.get("seccion"))
 
         return {"error": f"Herramienta desconocida: {nombre}"}
     except Exception as e:

@@ -210,6 +210,70 @@ def resumen_precios(sucursal=None):
     return resultado or {"info": "No hay precios cargados todavía."}
 
 
+SECCIONES_GENERALES = {
+    "tareas": "Todas las tareas (pendientes y hechas) de cada sucursal, con quién las tiene asignadas.",
+    "comercial_actividad": "El registro completo de actividad comercial (visitas, leads, clientes nuevos/recuperados).",
+    "personas": "La lista de personas del equipo (nombre, rol).",
+    "objetivos_petrolera": "Los objetivos bimestrales de la petrolera, por sucursal.",
+    "metas_comerciales": "Las metas comerciales cargadas por mes.",
+}
+
+
+def consultar_datos_generales(seccion):
+    """Devuelve datos en crudo de una sección de la app para que puedas responder
+    cualquier pregunta sobre ellos vos mismo, sin depender de una función específica.
+    Secciones válidas: ver SECCIONES_GENERALES."""
+    s = (seccion or "").strip().lower().replace(" ", "_")
+    if s not in SECCIONES_GENERALES:
+        return {"error": f"Sección '{seccion}' desconocida. Válidas: {', '.join(SECCIONES_GENERALES.keys())}."}
+
+    data = obtener_datos()
+    personas_por_id = {p["id"]: p["nombre"] for p in data.get("personas", [])}
+
+    if s == "tareas":
+        resultado = {}
+        for suc_key, suc in data.get("sucursales", {}).items():
+            tareas = suc.get("tareas") or []
+            if not tareas:
+                continue
+            resultado[NOMBRES_SUCURSALES.get(suc_key, suc_key)] = [
+                {
+                    "titulo": t.get("titulo"),
+                    "estado": t.get("estado"),
+                    "asignada_a": personas_por_id.get(t.get("asignadaA"), "(sin asignar)"),
+                    "vencimiento": t.get("vencimiento") or None,
+                    "prioridad": t.get("prioridad"),
+                }
+                for t in tareas
+            ]
+        return resultado
+
+    if s == "comercial_actividad":
+        actividad = data.get("comercialActividad") or []
+        return [
+            {
+                "tipo": a.get("tipo"),
+                "cliente": a.get("cliente"),
+                "fecha": a.get("fecha"),
+                "sucursal": NOMBRES_SUCURSALES.get(a.get("sucursal"), a.get("sucursal") or a.get("sucursalOtroTexto")),
+                "nota": a.get("nota") or None,
+            }
+            for a in actividad
+        ]
+
+    if s == "personas":
+        return [{"nombre": p.get("nombre"), "rol": p.get("rol")} for p in data.get("personas", [])]
+
+    if s == "objetivos_petrolera":
+        objetivos = data.get("objetivosPetrolera") or {}
+        return {NOMBRES_SUCURSALES.get(k, k): v for k, v in objetivos.items()}
+
+    if s == "metas_comerciales":
+        return data.get("metasComerciales") or {}
+
+    return {}
+
+
 # ---------- Panel de ventas / volúmenes (usa la misma sesión que la app principal) ----------
 PANEL_SUCURSALES = {
     "abasto": "Abasto",
@@ -251,80 +315,24 @@ def obtener_datos_panel():
     return resp.json()
 
 
-def _resolver_producto_panel(texto):
-    if not texto:
-        return None
-    t = texto.strip().lower()
-    alias = {
-        "nafta super": "nafta_super", "super": "nafta_super",
-        "nafta premium": "nafta_premium", "premium": "nafta_premium",
-        "diesel": "diesel", "gasoil": "diesel", "gasoil grado 2": "diesel", "gas oil grado 2": "diesel",
-        "euro": "euro", "gasoil grado 3": "euro", "gas oil grado 3": "euro",
-        "gnc": "gnc", "gas natural": "gnc",
-    }
-    if t in alias:
-        return alias[t]
-    for pid, nombre in PANEL_PRODUCTOS.items():
-        if t == pid or t in nombre.lower() or nombre.lower() in t:
-            return pid
-    return None
-
-
-def consultar_ventas(mes=None, sucursal=None, producto=None):
-    """mes: 'AAAA-MM' (ej: '2026-08'). sucursal y producto: texto libre."""
+def consultar_ventas_detalle():
+    """Devuelve TODO el detalle de ventas del panel (mes, sucursal, producto, litros,
+    precio, presupuesto), sin agrupar ni filtrar — para que puedas calcular vos mismo
+    cualquier comparación, ranking o suma que te pidan (por producto, por sucursal,
+    por mes, interanual, lo que sea), sin depender de un filtro predefinido."""
     data = obtener_datos_panel()
     ventas = list((data.get("ventas") or {}).values())
-
-    slug_filtro = _resolver_sucursal_panel(sucursal) if sucursal else None
-    if sucursal and not slug_filtro:
-        return {"error": f"No encontré la sucursal '{sucursal}' en el panel. Las válidas son: {', '.join(PANEL_SUCURSALES.values())}."}
-
-    prod_filtro = _resolver_producto_panel(producto) if producto else None
-    if producto and not prod_filtro:
-        return {"error": f"No encontré el producto '{producto}'. Los válidos son: {', '.join(PANEL_PRODUCTOS.values())}."}
-
-    if mes:
-        ventas = [v for v in ventas if v.get("mes") == mes]
-    if slug_filtro:
-        ventas = [v for v in ventas if v.get("sucursal") == slug_filtro]
-    if prod_filtro:
-        ventas = [v for v in ventas if v.get("producto") == prod_filtro]
-
-    if not ventas:
-        return {"info": "No encontré datos de ventas para ese filtro en el panel."}
-
-    litros = sum((v.get("litros") or 0) for v in ventas if v.get("unidad") == "L")
-    gnc = sum((v.get("litros") or 0) for v in ventas if v.get("unidad") == "m3")
-
-    resultado = {
-        "mes": mes or "todos los meses disponibles",
-        "sucursal": PANEL_SUCURSALES.get(slug_filtro) if slug_filtro else "todas las sucursales",
-        "producto": PANEL_PRODUCTOS.get(prod_filtro) if prod_filtro else "todos los productos",
-        "litros_combustibles_liquidos": round(litros),
-        "gnc_m3": round(gnc),
-    }
-
-    if not prod_filtro:
-        por_producto = {}
-        for v in ventas:
-            p = v.get("producto")
-            if p == "total_liquidos":
-                continue  # dato agregado de 2025 (para comparar interanual), no discrimina por producto
-            por_producto[p] = por_producto.get(p, 0) + (v.get("litros") or 0)
-        if por_producto:
-            resultado["por_producto"] = {
-                PANEL_PRODUCTOS.get(k, k): round(val) for k, val in por_producto.items()
-            }
-
-    if not slug_filtro:
-        por_sucursal = {}
-        for v in ventas:
-            if v.get("unidad") != "L":
-                continue
-            s = v.get("sucursal")
-            por_sucursal[s] = por_sucursal.get(s, 0) + (v.get("litros") or 0)
-        resultado["por_sucursal"] = {
-            PANEL_SUCURSALES.get(k, k): round(val) for k, val in por_sucursal.items()
-        }
-
-    return resultado
+    detalle = []
+    for v in ventas:
+        producto = v.get("producto")
+        detalle.append({
+            "mes": v.get("mes"),
+            "sucursal": PANEL_SUCURSALES.get(v.get("sucursal"), v.get("sucursal")),
+            "producto": "Total líquidos (sin discriminar)" if producto == "total_liquidos" else PANEL_PRODUCTOS.get(producto, producto),
+            "unidad": v.get("unidad"),
+            "litros_o_m3_vendidos": v.get("litros"),
+            "precio": v.get("precio") or None,
+            "presupuesto_litros_o_m3": v.get("presLitros") or None,
+        })
+    detalle.sort(key=lambda x: (x["mes"] or "", x["sucursal"] or ""))
+    return {"registros": detalle, "total_registros": len(detalle)}
