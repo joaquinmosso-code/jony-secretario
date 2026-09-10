@@ -131,12 +131,13 @@ TOOLS = [
     },
     {
         "name": "consultar_ventas",
-        "description": "Devuelve los litros vendidos (combustibles líquidos y GNC) del Panel de Estaciones de Servicio de GLB, filtrado opcionalmente por mes y/o sucursal.",
+        "description": "Devuelve los litros vendidos del Panel de Estaciones de Servicio de GLB, filtrado opcionalmente por mes, sucursal y/o producto específico (nafta súper, nafta premium, diesel, euro o GNC). Si no se filtra por producto, devuelve el desglose por cada producto.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "mes": {"type": "string", "description": "Mes en formato AAAA-MM (ej: '2026-08' para agosto de 2026). Convertí vos el mes que te diga Joaco a este formato. Si no se especifica, suma todos los meses disponibles."},
                 "sucursal": {"type": "string", "description": "Nombre de la sucursal (Abasto, Seminario, Alejandro Roca, Villa Mercedes, Villa General Belgrano). Si no se especifica, trae todas."},
+                "producto": {"type": "string", "description": "Producto específico: nafta super, nafta premium, diesel, euro o gnc. Si no se especifica, trae el desglose de todos."},
             },
         },
     },
@@ -191,7 +192,9 @@ def _ejecutar_tool(nombre, entrada):
             return glb_helper.resumen_precios(sucursal=entrada.get("sucursal"))
 
         if nombre == "consultar_ventas":
-            return glb_helper.consultar_ventas(mes=entrada.get("mes"), sucursal=entrada.get("sucursal"))
+            return glb_helper.consultar_ventas(
+                mes=entrada.get("mes"), sucursal=entrada.get("sucursal"), producto=entrada.get("producto")
+            )
 
         return {"error": f"Herramienta desconocida: {nombre}"}
     except Exception as e:

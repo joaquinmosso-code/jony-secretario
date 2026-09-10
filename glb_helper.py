@@ -219,6 +219,14 @@ PANEL_SUCURSALES = {
     "villa_gral_belgrano": "Villa General Belgrano",
 }
 
+PANEL_PRODUCTOS = {
+    "diesel": "Diesel (grado 2)",
+    "euro": "Euro (grado 3)",
+    "nafta_super": "Nafta Super (grado 2)",
+    "nafta_premium": "Nafta Premium (grado 3)",
+    "gnc": "GNC",
+}
+
 
 def _resolver_sucursal_panel(texto):
     if not texto:
@@ -243,8 +251,27 @@ def obtener_datos_panel():
     return resp.json()
 
 
-def consultar_ventas(mes=None, sucursal=None):
-    """mes: 'AAAA-MM' (ej: '2026-08'). sucursal: nombre en texto libre."""
+def _resolver_producto_panel(texto):
+    if not texto:
+        return None
+    t = texto.strip().lower()
+    alias = {
+        "nafta super": "nafta_super", "super": "nafta_super",
+        "nafta premium": "nafta_premium", "premium": "nafta_premium",
+        "diesel": "diesel", "gasoil": "diesel", "gasoil grado 2": "diesel", "gas oil grado 2": "diesel",
+        "euro": "euro", "gasoil grado 3": "euro", "gas oil grado 3": "euro",
+        "gnc": "gnc", "gas natural": "gnc",
+    }
+    if t in alias:
+        return alias[t]
+    for pid, nombre in PANEL_PRODUCTOS.items():
+        if t == pid or t in nombre.lower() or nombre.lower() in t:
+            return pid
+    return None
+
+
+def consultar_ventas(mes=None, sucursal=None, producto=None):
+    """mes: 'AAAA-MM' (ej: '2026-08'). sucursal y producto: texto libre."""
     data = obtener_datos_panel()
     ventas = list((data.get("ventas") or {}).values())
 
@@ -252,10 +279,16 @@ def consultar_ventas(mes=None, sucursal=None):
     if sucursal and not slug_filtro:
         return {"error": f"No encontré la sucursal '{sucursal}' en el panel. Las válidas son: {', '.join(PANEL_SUCURSALES.values())}."}
 
+    prod_filtro = _resolver_producto_panel(producto) if producto else None
+    if producto and not prod_filtro:
+        return {"error": f"No encontré el producto '{producto}'. Los válidos son: {', '.join(PANEL_PRODUCTOS.values())}."}
+
     if mes:
         ventas = [v for v in ventas if v.get("mes") == mes]
     if slug_filtro:
         ventas = [v for v in ventas if v.get("sucursal") == slug_filtro]
+    if prod_filtro:
+        ventas = [v for v in ventas if v.get("producto") == prod_filtro]
 
     if not ventas:
         return {"info": "No encontré datos de ventas para ese filtro en el panel."}
@@ -266,9 +299,22 @@ def consultar_ventas(mes=None, sucursal=None):
     resultado = {
         "mes": mes or "todos los meses disponibles",
         "sucursal": PANEL_SUCURSALES.get(slug_filtro) if slug_filtro else "todas las sucursales",
+        "producto": PANEL_PRODUCTOS.get(prod_filtro) if prod_filtro else "todos los productos",
         "litros_combustibles_liquidos": round(litros),
         "gnc_m3": round(gnc),
     }
+
+    if not prod_filtro:
+        por_producto = {}
+        for v in ventas:
+            p = v.get("producto")
+            if p == "total_liquidos":
+                continue  # dato agregado de 2025 (para comparar interanual), no discrimina por producto
+            por_producto[p] = por_producto.get(p, 0) + (v.get("litros") or 0)
+        if por_producto:
+            resultado["por_producto"] = {
+                PANEL_PRODUCTOS.get(k, k): round(val) for k, val in por_producto.items()
+            }
 
     if not slug_filtro:
         por_sucursal = {}
