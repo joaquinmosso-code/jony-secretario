@@ -68,7 +68,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "\"¿qué clima hace mañana en Río Cuarto?\", \"tengo mails sin leer?\", "
         "\"¿qué tareas tiene pendientes Nacho en Abasto?\", "
         "\"cargame una tarea en Seminario: revisar el cartel de precios\", "
-        "\"registrá una visita al cliente Transporte Rodriguez\""
+        "\"registrá una visita al cliente Transporte Rodriguez\", "
+        "\"¿cuánto vendimos en Abasto en agosto?\""
     )
 
 

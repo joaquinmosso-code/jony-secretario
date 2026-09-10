@@ -208,3 +208,77 @@ def resumen_precios(sucursal=None):
             "precios_propios": ultimo.get("propio"),
         }
     return resultado or {"info": "No hay precios cargados todavía."}
+
+
+# ---------- Panel de ventas / volúmenes (usa la misma sesión que la app principal) ----------
+PANEL_SUCURSALES = {
+    "abasto": "Abasto",
+    "seminario": "Seminario",
+    "alejandro_roca": "Alejandro Roca",
+    "villa_mercedes": "Villa Mercedes",
+    "villa_gral_belgrano": "Villa General Belgrano",
+}
+
+
+def _resolver_sucursal_panel(texto):
+    if not texto:
+        return None
+    t = texto.strip().lower().replace("gral.", "general").replace("gral", "general")
+    for slug, nombre in PANEL_SUCURSALES.items():
+        nombre_norm = nombre.lower().replace("general", "general")
+        if t == slug or t in nombre_norm or nombre_norm in t:
+            return slug
+    return None
+
+
+def obtener_datos_panel():
+    global _logueado
+    if not _logueado:
+        _login()
+    resp = _session.get(f"{GLB_BASE_URL}/api/panel-data", timeout=20)
+    if resp.status_code == 401:
+        _login()
+        resp = _session.get(f"{GLB_BASE_URL}/api/panel-data", timeout=20)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def consultar_ventas(mes=None, sucursal=None):
+    """mes: 'AAAA-MM' (ej: '2026-08'). sucursal: nombre en texto libre."""
+    data = obtener_datos_panel()
+    ventas = list((data.get("ventas") or {}).values())
+
+    slug_filtro = _resolver_sucursal_panel(sucursal) if sucursal else None
+    if sucursal and not slug_filtro:
+        return {"error": f"No encontré la sucursal '{sucursal}' en el panel. Las válidas son: {', '.join(PANEL_SUCURSALES.values())}."}
+
+    if mes:
+        ventas = [v for v in ventas if v.get("mes") == mes]
+    if slug_filtro:
+        ventas = [v for v in ventas if v.get("sucursal") == slug_filtro]
+
+    if not ventas:
+        return {"info": "No encontré datos de ventas para ese filtro en el panel."}
+
+    litros = sum((v.get("litros") or 0) for v in ventas if v.get("unidad") == "L")
+    gnc = sum((v.get("litros") or 0) for v in ventas if v.get("unidad") == "m3")
+
+    resultado = {
+        "mes": mes or "todos los meses disponibles",
+        "sucursal": PANEL_SUCURSALES.get(slug_filtro) if slug_filtro else "todas las sucursales",
+        "litros_combustibles_liquidos": round(litros),
+        "gnc_m3": round(gnc),
+    }
+
+    if not slug_filtro:
+        por_sucursal = {}
+        for v in ventas:
+            if v.get("unidad") != "L":
+                continue
+            s = v.get("sucursal")
+            por_sucursal[s] = por_sucursal.get(s, 0) + (v.get("litros") or 0)
+        resultado["por_sucursal"] = {
+            PANEL_SUCURSALES.get(k, k): round(val) for k, val in por_sucursal.items()
+        }
+
+    return resultado
