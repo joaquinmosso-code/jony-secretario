@@ -34,6 +34,25 @@ import voice_helper
 # --- Configuración básica ---
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
+USUARIOS_PERMITIDOS = set()
+for _id in os.getenv("JONY_USUARIOS_PERMITIDOS", "").split(","):
+    _id = _id.strip()
+    if _id.isdigit():
+        USUARIOS_PERMITIDOS.add(int(_id))
+
+
+def requiere_autorizado(func):
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id if update.effective_user else None
+        if USUARIOS_PERMITIDOS and user_id not in USUARIOS_PERMITIDOS:
+            await update.message.reply_text(
+                "No tenés acceso a Jony todavía. Mandame /miid para conseguir tu ID "
+                "y pasáselo a Joaco para que te lo habilite."
+            )
+            return
+        return await func(update, context)
+    return wrapper
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -42,6 +61,15 @@ logger = logging.getLogger("jony")
 
 
 # --- Comandos ---
+async def mi_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        f"Tu ID de Telegram es: `{update.effective_user.id}`\n\n"
+        "Pasáselo a Joaco si necesitás que te dé acceso a Jony.",
+        parse_mode="Markdown",
+    )
+
+
+@requiere_autorizado
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     nombre = update.effective_user.first_name or "jefe"
     await update.message.reply_text(
@@ -54,6 +82,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+@requiere_autorizado
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Por ahora puedo:\n"
@@ -74,6 +103,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+@requiere_autorizado
 async def correos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Un segundo, reviso tu Gmail... 📬")
 
@@ -104,6 +134,7 @@ async def correos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(texto, parse_mode="Markdown")
 
 
+@requiere_autorizado
 async def outlook(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Un segundo, reviso tu Outlook... 📬\n"
@@ -137,6 +168,7 @@ async def outlook(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(texto, parse_mode="Markdown")
 
 
+@requiere_autorizado
 async def clima(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args:
         await update.message.reply_text(
@@ -198,6 +230,7 @@ def _formatear_fecha(fecha_iso):
     return fecha_iso.replace("T", " ")[:16]
 
 
+@requiere_autorizado
 async def agenda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Un segundo, reviso tu agenda... 📅\n"
@@ -239,6 +272,7 @@ async def agenda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(texto, parse_mode="Markdown")
 
 
+@requiere_autorizado
 async def mensaje_voz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Notas de voz: se transcriben con Whisper y después se procesan igual que un mensaje de texto."""
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -285,11 +319,13 @@ async def mensaje_voz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(respuesta)
 
 
+@requiere_autorizado
 async def nuevo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     agent_helper.reiniciar_conversacion(update.effective_chat.id)
     await update.message.reply_text("Listo, arrancamos de cero 🧹 — no me acuerdo de lo que veníamos hablando.")
 
 
+@requiere_autorizado
 async def mensaje_libre(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Cualquier mensaje que no sea un comando se lo pasamos a Jony para que decida qué hacer."""
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -315,6 +351,7 @@ def main() -> None:
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("miid", mi_id))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("correos", correos))
     app.add_handler(CommandHandler("outlook", outlook))
